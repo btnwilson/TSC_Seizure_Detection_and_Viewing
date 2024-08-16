@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Aug 15 20:57:08 2024
 
-@author: bentn
-"""
 import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
