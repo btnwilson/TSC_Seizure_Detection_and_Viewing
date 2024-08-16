@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Jul 17 14:56:48 2024
 
-@author: bentn
-"""
 import os
 import itertools
 import numpy as np
