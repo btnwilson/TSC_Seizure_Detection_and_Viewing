@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Jun 25 15:02:27 2024
 
-@author: bentn
-"""
 import os 
 import pyedflib as edf 
 import numpy as np 
