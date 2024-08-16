@@ -3,44 +3,28 @@ import os
 import itertools
 import numpy as np
 def find_overlap(list1, list2):
-    # Convert both lists to sets
     set1 = set(list1)
     set2 = set(list2)
-
-    # Find the intersection of both sets
     overlap = set1.intersection(set2)
-
-    # Return the overlap as a list
     return list(overlap)
 
 def find_all_overlaps(list_of_lists):
     overlaps = []
-    
-    # Generate all combinations of list pairs with their indices
     for (i, list1), (j, list2) in itertools.combinations(enumerate(list_of_lists), 2):
         overlap = find_overlap(list1, list2)
         if overlap:
             overlaps.append((i, j, overlap))
-    
     return overlaps
 
 def is_subset(smaller_list, bigger_list):
-    # Convert both lists to sets
     set_smaller = set(smaller_list)
     set_bigger = set(bigger_list)
-    
-    # Check if the smaller set is a subset of the bigger set
     return set_smaller.issubset(set_bigger)
 
 def find_non_elements(smaller_list, bigger_list):
-    # Convert both lists to sets
     set_smaller = set(smaller_list)
     set_bigger = set(bigger_list)
-    
-    # Find the difference between the sets
     non_elements = set_smaller - set_bigger
-    
-    # Return the difference as a list
     return list(non_elements)
 
 files = os.listdir("EDF Files/")
