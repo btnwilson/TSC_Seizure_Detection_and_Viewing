@@ -1,306 +1,326 @@
-import os
-import pyedflib as edf
-import numpy as np
+import tkinter as tk
+from tkinter import ttk
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
-import pandas as pd
-from scipy import signal
-from scipy.stats import mode
-import time as t
-import openpyxl
-from openpyxl.drawing.image import Image
-import gc
-from file_groupings import mice_files
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import cv2
+from PIL import Image, ImageTk
+import os
 import pickle
-from scipy.signal import butter, filtfilt, iirnotch
+from datetime import datetime, timedelta
+import numpy as np
+import matplotlib.dates as mdates
+import threading
+import queue
  
-start_time = t.time()
-temp_time1 = t.time()
-def calculate_arclength_signal(signal, fs):
-    arclength = np.sqrt(np.diff(signal)**2 + (1/fs)**2)
-    return arclength
- 
-def normalize_median_AD(signal):
-    signal_mode, mode_count = mode(signal)
-    if mode_count > .05 * len(signal) and signal_mode < .01:
-        filtered_signal = signal[(signal != signal_mode)]
-    else:
-        filtered_signal = signal
-    median = np.median(filtered_signal)
-    #print(median)
-    mad = np.median(np.abs(filtered_signal - median))
-    #print(mad)
-    normalized_signal = (signal - median)/mad
-    return normalized_signal
- 
- 
-min_event_duration = 10
-max_event_duration = 500
-min_spacing = 20
+plt.ioff()
+mice = os.listdir("Z:\Emily\TSCproject\Event Identification Events\eventid\Events")
 selected_mouse = "cmvcre3_136"
-files = mice_files
+file_path = os.path.join("Z:\Emily\TSCproject\Event Identification Events\eventid\Events", selected_mouse)
+files = os.listdir(file_path)
+selected_file = files[0]
  
-selected_files = files[selected_mouse]
-path = f"Events/{selected_mouse}"
-   
-cage_number = selected_mouse.split("_")[1]
+video_path = "Z:\Emily TSC Video Capturing" #Change to correct path to video location for your device
+videos = os.listdir(video_path)
+print(videos)
+video_start_times = [datetime.strptime(name.replace(".mp4", "").replace(".mkv", "").replace("._", ""), "%Y-%m-%d %H-%M-%S") for name in videos if name.endswith((".mp4", ".mkv"))]
  
+with open(os.path.join(file_path, selected_file), 'rb') as f:
+    data = pickle.load(f)
  
+# Global variables
+current_event_index = 0
+fs = 30
+playback_speed = 1
+is_playing = False
+cap = None
+frame_queue = queue.Queue()
+last_frame = None
  
-if not os.path.exists(path):
-    os.makedirs(path, exist_ok=True)
-    print("Directory Made")
-   
-for i in range(len(selected_files)):
-    #print(i)
-    file = selected_files[i]
-    print(file)
-    signals, headers, main_header = edf.highlevel.read_edf(f"edf_file=C:\\Users\\ed0110\\Desktop\\edftry.edf", verbose=True)
-    channel1 = signals[0,:]
-    fs = headers[0]["sample_frequency"]
-   
-    normalized_channel1 = normalize_median_AD(channel1)
-   
-    cutoff = 2
-    order = 3
-    nyquist = 0.5 * fs
-    normal_cutoff = cutoff / nyquist
-    b, a = butter(order, normal_cutoff, btype='high', analog=False)
-    normalized_channel1 = filtfilt(b, a, normalized_channel1)
-   
-    f0 = 60
-    q = 30
-    b, a = iirnotch(f0 / (fs / 2), q, fs)
-    normalized_channel1 = filtfilt(b, a, normalized_channel1)
-   
-    print("File Loaded, Normalized and Filtered")
-   
-    arclength_signal = calculate_arclength_signal(normalized_channel1, fs)
-    time = np.arange(0, len(normalized_channel1)/fs, 1/fs)
-   
-    mode_normalized, mode_count = mode(normalized_channel1)
-   
-    if mode_count > .05 * len(normalized_channel1):
-        mean_sig = np.mean(normalized_channel1[(normalized_channel1 != mode_normalized)])
-        std_sig = np.std(normalized_channel1[(normalized_channel1 != mode_normalized)])
+sorted_indices = sorted(range(len(video_start_times)), key=lambda i: video_start_times[i])
+sorted_video_start_times = [video_start_times[i] for i in sorted_indices]
+sorted_video_names = [videos[i] for i in sorted_indices]
+ 
+eeg_data = data[f"Event {current_event_index}"]["EEG Signal"]
+event_start_time = datetime.strptime(data[f"Event {current_event_index}"]["Start Time"], "%m-%d-%Y %H:%M:%S")
+ 
+max_spikes = data[f"Event {current_event_index}"]["Max Spikes"]
+max_arclength = data[f"Event {current_event_index}"]["Max Arclength"]
+event_duration = data[f"Event {current_event_index}"]["Duration"]
+cage_num = data[f"Event {current_event_index}"]["Cage Number"]
+ 
+selected_video = None
+selected_video_start_time = None
+for video_number in range(len(sorted_video_start_times) - 1):
+    if sorted_video_start_times[video_number] <= event_start_time <= sorted_video_start_times[video_number + 1]:
+        selected_video = sorted_video_names[video_number]
+        selected_video_start_time = sorted_video_start_times[video_number]
+        break
+ 
+def create_plot(frame):
+    try:
+        for widget in frame.winfo_children():
+            widget.destroy()
+       
+        fig, ax = plt.subplots(figsize=(10, 3))  
+        eeg_data = data[f"Event {current_event_index}"]["EEG Signal"]
+        event_start_time = datetime.strptime(data[f"Event {current_event_index}"]["Start Time"], "%m-%d-%Y %H:%M:%S")
+       
+        interval = timedelta(seconds=1 / fs)
+        time_array = [event_start_time + i * interval for i in range(len(eeg_data))]
+        time_array = np.array(time_array)
+       
+        ax.plot(time_array, eeg_data)
+        ax.set_title(f"Event {current_event_index + 1} from {selected_file}")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Normalized EEG")
+       
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M:%S'))
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+ 
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+       
+        canvas = FigureCanvasTkAgg(fig, master=frame)
+        canvas.draw()
+        canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+    except Exception as e:
+        print(f"Error in create_plot: {e}")
+ 
+def resize_frame(frame, width):
+    height, original_width = frame.shape[:2]
+    aspect_ratio = original_width / height
+    new_height = int(width / aspect_ratio)
+    return cv2.resize(frame, (width, new_height))
+ 
+def play_video():
+    global cap, is_playing, last_frame
+    while is_playing and cap.isOpened():
+        try:
+            ret, frame = cap.read()
+            if not ret:
+                is_playing = False
+                break
+           
+            frame = resize_frame(frame, 1000)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = ImageTk.PhotoImage(Image.fromarray(frame))
+            frame_queue.put(img)
+        except Exception as e:
+            print(f"Error in play_video: {e}")
+            is_playing = False
+ 
+def update_frame():
+    try:
+        if not frame_queue.empty():
+            img = frame_queue.get_nowait()
+            # Update GUI in the main thread using `after` method
+            video_label.imgtk = img
+            video_label.configure(image=img)
+        video_label.after(5, update_frame)
+    except Exception as e:
+        print(f"Error in update_frame: {e}")
+        video_label.after(5, update_frame)
+ 
+def play_pause_video():
+    global is_playing
+    if not is_playing:
+        is_playing = True
+        threading.Thread(target=play_video, daemon=True).start()
     else:
-        mean_sig = np.mean(normalized_channel1)
-        std_sig = np.std(normalized_channel1)
-       
-    threshold = mean_sig + 3 * std_sig
-   
-    max_peak_inds, max_peak_info = signal.find_peaks(normalized_channel1, height= threshold, distance=50, width=[0, int(.25 * fs)])
-    min_peak_inds, min_peak_info = signal.find_peaks(-normalized_channel1, height= threshold, distance=50, width=[0, int(.25 * fs)])
-     
-    max_peak_heights = max_peak_info["peak_heights"] #["prominences"]
-    min_peak_heights = min_peak_info["peak_heights"] #["prominences"]
-     
-    pos_percentile = np.percentile(max_peak_heights, 75)
-    neg_percentile = np.percentile(min_peak_heights, 75)
-   
-    selected_pos = max_peak_inds[(max_peak_heights >= pos_percentile)] #& (max_peak_heights < pos_95_percentile)]
-    selected_neg = min_peak_inds[(min_peak_heights >= neg_percentile)] # & (min_peak_heights < neg_95_percentile)]
-   
-    time_per_step = 5
-    index_step = int(5 * fs)
-   
-    arclength_sliding_window = np.zeros((int(len(normalized_channel1)/index_step + 1)))
-    spikes_sliding_window = np.zeros((int(len(normalized_channel1)/index_step + 1)))
-   
-    for window_num, index in enumerate(range(0, len(channel1), index_step)):
-        arclength_sliding_window[window_num] = np.sum(arclength_signal[index:index+index_step])
-       
-        total_pos_spikes = np.sum((selected_pos >= index) & (selected_pos < index+index_step))
-        total_neg_spikes = np.sum((selected_neg >= index) & (selected_neg < index+index_step))
-        spikes_sliding_window[window_num] = total_pos_spikes + total_pos_spikes
-   
-    print("Arclength and Spikes Computed")
-   
-    spike_events = []
-    spike_event = np.array([])
-    spike_threshold = 4
-    for index, num_spikes in enumerate(spikes_sliding_window):
-        index_sec = index * time_per_step
-        if num_spikes >= spike_threshold:
-            spike_event = np.append(spike_event, index_sec)
-        else:
-            if len(spike_event) > 0:
-                spike_events.append(spike_event)
-                spike_event = np.array([])
-        if index == len(spikes_sliding_window) - 1 and len(spike_event) > 0:
-            spike_events.append(spike_event)
-           
-    if len(spike_events) == 0:
-        print(f"No events found in file:{file}")
-        continue
-   
-    spike_events_merged = []
-    current_array = spike_events[0]
-    for next_array in spike_events[1:]:
-        if next_array[0] - current_array[-1] < min_spacing:
-            current_array = np.concatenate((current_array, next_array))
-        else:
-            spike_events_merged.append(current_array)
-            current_array = next_array
-   
-    spike_events_merged = [event for event in spike_events_merged if event[-1] - event[0] > min_event_duration]
-    spike_events_merged = [event for event in spike_events_merged if event[-1] - event[0] < max_event_duration]
-   
-    max_spikes = []
-    max_arclengths = []
-   
-    for event in spike_events_merged:
-        max_spikes.append(max(spikes_sliding_window[int(event[0]/5):int(event[-1]/5)]))
-        max_arclengths.append(max(arclength_sliding_window[int(event[0]/5):int(event[-1]/5)]))
-   
-    max_spikes = np.array(max_spikes)
-    max_arclengths = np.array(max_arclengths)
-   
-    normalized_max_spikes = (max_spikes - np.min(max_spikes))/(np.max(max_spikes) - np.min(max_spikes))
-    normalized_max_arclengths = (max_arclengths - np.min(max_arclengths))/(np.max(max_arclengths) - np.min(max_arclengths))
-   
-    weighted_score = normalized_max_spikes + normalized_max_arclengths
-   
-    ordering = np.argsort(-weighted_score)
-   
-    spike_events_merged_reordered = [spike_events_merged[j] for j in ordering]
-    max_spikes = max_spikes[ordering]
-    max_arclengths = max_arclengths[ordering]
-   
-    file_start_time = main_header["startdate"]
-    event_times = []
-   
-    for event in spike_events_merged_reordered:
-        delta_time = timedelta(seconds=event[0])
-        time_stamp = file_start_time + delta_time
-        event_times.append(time_stamp.strftime("%m-%d-%Y %H:%M:%S"))
-       
+        is_playing = False
  
-    if "Done" in file:
-        file = [file.removesuffix("Done.edf")] +  [None] * (len(ordering) - 1)
+def next_event():
+    global current_event_index
+    if current_event_index < len(data) - 1:
+        current_event_index += 1
+        update_plots()
     else:
-        file = [file.removesuffix(".edf")] +  [None] * (len(ordering) - 1)
+        event_textbox.delete(1.0, tk.END)
+        event_textbox.insert(tk.END, "All Events Viewed")
  
+def previous_event():
+    global current_event_index
+    if current_event_index > 0:
+        current_event_index -= 1
+        update_plots()
+    else:
+        event_textbox.delete(1.0, tk.END)
+        event_textbox.insert(tk.END, "No Prior Events")
  
-    event_durations = []
-    for event in spike_events_merged_reordered:
-        event_durations.append(event[-1] - event[0])
-       
-    output = {"File": file ,
-              "Time" : event_times,
-              "Max ArcLength" : max_arclengths,
-              "Max Spikes" : max_spikes,
-              "Event Duration (s)" : event_durations}
+def jump_forward():
+    global cap, is_playing
+    if cap is not None:
+        try:
+            current_frame = cap.get(cv2.CAP_PROP_POS_FRAMES)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame + 15 * 30)
+            if is_playing:
+                update_frame()
+        except Exception as e:
+            print(f"Error in jump_forward: {e}")
  
-    df = pd.DataFrame(output)
-   
-    print("Data Frame Saved")
-   
-    #df_short = df.iloc[0:int(len(df) * .2)]
-   
-    time = np.arange(0, len(channel1)/fs, 1/fs)
-    plt.figure()
-    plt.plot(time, normalized_channel1)
-   
-    upper_marker = np.zeros(len(channel1))
-    lower_marker = np.zeros(len(channel1))
-    #%%
-    plot_buffer = 5 * fs
-    plt.figure(figsize=(18,12))
-    num_plots = 5
-    selected_events = {}
-    for count, event in enumerate(spike_events_merged_reordered):
-        selected_events[f"Event {count}"] = {}
-        if event[0] == 0:
-            start = 5
-        else:
-            start = event[0]
-       
-        if event[-1] >= int(time[-1] - 5):
-            end = event[-2]
-        else:
-            end = event[-1]
-           
-        event_duration = end - start
-        signal_in_window = normalized_channel1[int(start * fs - plot_buffer): int(end * fs + plot_buffer)]
-        selected_events[f"Event {count}"]["Start Time"] = event_times[count]
-        selected_events[f"Event {count}"]["EEG Signal"] = signal_in_window
-        selected_events[f"Event {count}"]["Max Spikes"] = max_spikes[count]
-        selected_events[f"Event {count}"]["Max Arclength"] = max_arclengths[count]
-        selected_events[f"Event {count}"]["Duration"] = event_durations[count]
-        selected_events[f"Event {count}"]["Cage Number"] = cage_number
-       
-        if count < num_plots:
-            plt.subplot(num_plots,1,count+1)
-           
-            upper_marker = np.zeros(int(event_duration * fs + 10 * fs))
-            lower_marker = np.zeros(int(event_duration * fs + 10 * fs))
-           
-            plot_time = np.arange(0, int(event_duration + 10), 1/fs)
-           
-            is_event = ((plot_time >= 5) & (plot_time <= event_durations[count] + 5))
-            upper_marker[is_event] = max(normalized_channel1[int(start * fs): int(end * fs)])
-            lower_marker[is_event] = min(normalized_channel1[int(start * fs): int(end * fs)])
-           
-            pos_in_window = selected_pos[((selected_pos >= (start * fs - plot_buffer)) & (selected_pos <= (end * fs + plot_buffer)))] - (start * fs) + plot_buffer
-            neg_in_window = selected_neg[((selected_neg >= (start * fs - plot_buffer)) & (selected_neg <= (end * fs + plot_buffer)))] - (start * fs) + plot_buffer
-           
-            plt.plot(plot_time, signal_in_window, label="Normalized Signal")
-            plt.fill_between(plot_time, upper_marker, lower_marker, alpha = .5, color="red", label="Identified Event")
-            plt.scatter(plot_time[pos_in_window.astype(int)], signal_in_window[pos_in_window.astype(int)], c="red", label="Identified Spike")
-            plt.scatter(plot_time[neg_in_window.astype(int)], signal_in_window[neg_in_window.astype(int)], c="red")
-            plt.legend()
-            plt.xlabel("Time (s)")
-            plt.ylabel("Signal Normalized by MAD")
-            plt.title(f"Candidate Seizure #{count+1}")
-   
-   
-    plt.tight_layout()
-    plt.savefig(f"{file[0]}.png")
-    with open(f'Events/{selected_mouse}/{file[0]}.pkl', 'wb') as f:
-        pickle.dump(selected_events, f)
-       
-    excel_path = f"{selected_mouse}.xlsx"
-   
-    if not os.path.exists(excel_path):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Sheet1"
-        wb.save(excel_path)
-        wb.close()
-   
-    wb = openpyxl.load_workbook(excel_path)
-   
-    with pd.ExcelWriter(excel_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-        df.to_excel(writer, sheet_name=file[0], index=False)
-       
-    wb = openpyxl.load_workbook(excel_path)
-    new_sheet = wb[f"{file[0]}"]
-   
-    img = Image(f"{file[0]}.png")
-   
-    new_sheet.add_image(img, 'H2')
-   
-    wb.save(excel_path)
-    wb.close()
-   
-    os.remove(f"{file[0]}.png")
-   
-   
-    print(f"{file[0]} Complete")
-    temp_time = t.time() - temp_time1
-    temp_time1 = t.time()
-    print(temp_time)
-   
-    del channel1
-    del signals
-    del normalized_channel1
-    del time
-   
-    gc.collect()
-   
-end_time = t.time()
+def jump_backward():
+    global cap, is_playing
+    if cap is not None:
+        try:
+            current_frame = cap.get(cv2.CAP_PROP_POS_FRAMES)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, current_frame - 5 * 30))
+            if is_playing:
+                update_frame()
+        except Exception as e:
+            print(f"Error in jump_backward: {e}")
  
-elapsed_time = end_time - start_time
+def update_plots():
+    global cap, selected_video, selected_video_start_time, last_frame
+   
+    if cap is not None:
+        cap.release()
+   
+    eeg_data = data[f"Event {current_event_index}"]["EEG Signal"]
+    event_start_time = datetime.strptime(data[f"Event {current_event_index}"]["Start Time"], "%m-%d-%Y %H:%M:%S")
+   
+    for video_number in range(len(sorted_video_start_times) - 1):
+        if sorted_video_start_times[video_number] <= event_start_time <= sorted_video_start_times[video_number + 1]:
+            selected_video = sorted_video_names[video_number]
+            selected_video_start_time = sorted_video_start_times[video_number]
+            break
+   
+    cap = cv2.VideoCapture(os.path.join(video_path, selected_video))
+   
+    if not cap.isOpened():
+        print(f"Error: Unable to open video file {selected_video}")
+        return
+       
+    try:
+        ret, frame = cap.read()
+        if ret:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            last_frame = ImageTk.PhotoImage(Image.fromarray(frame))
+            #video_label.configure(image=last_frame)
+       
+        time_difference = event_start_time - selected_video_start_time
+        time_from_start = time_difference.total_seconds()
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(time_from_start * 30 - 5 * 30))
+       
+        create_plot(graph_frame)
+       
+        event_textbox.delete(1.0, tk.END)
+        max_spikes = data[f"Event {current_event_index}"]["Max Spikes"]
+        max_arclength = data[f"Event {current_event_index}"]["Max Arclength"]
+        event_duration = data[f"Event {current_event_index}"]["Duration"]
+        cage_num = data[f"Event {current_event_index}"]["Cage Number"]
+       
+        event_textbox.insert(tk.END, f"Max Spikes: {max_spikes} \t Max Linelength: {max_arclength} \t Event Duration: {event_duration}s \t Cage Number: {cage_num}")
+       
+        if cap.isOpened():
+            update_frame()
+    except Exception as e:
+        print(f"Error in update_plots: {e}")
  
-print(f"Time taken to run the code: {elapsed_time:.2f} seconds")
+def set_file():
+    global selected_file, current_event_index, data, file_path
+    selected_file = file_options.get()
+   
+    try:
+        with open(os.path.join(file_path, selected_file), 'rb') as f:
+            data = pickle.load(f)
+       
+        current_event_index = 0
+        update_plots()
+    except Exception as e:
+        print(f"Error in set_file: {e}")
+ 
+def set_mouse():
+    global selected_mouse, selected_file, files, file_path
+   
+    selected_mouse = mouse_options.get()
+    file_path = os.path.join("Events", selected_mouse)
+    files = os.listdir(file_path)  
+    file_options['values'] = files
+    file_options.set(f"")
+ 
+root = tk.Tk()
+root.title("EEG Event Video Player")
+root.geometry("1200x800")  # Set the window size
+ 
+file_control_frame = ttk.Frame(root, height=50)
+file_control_frame.grid(row=0, column=0, columnspan=3, sticky="ew")
+ 
+video_frame = ttk.Frame(root, width=800, height=400)
+video_frame.grid(row=1, column=1, sticky="ns")
+ 
+graph_frame = ttk.Frame(root, width=1200, height=300)
+graph_frame.grid(row=3, column=0, columnspan=3, sticky="n")
+ 
+video_control_frame = ttk.Frame(root, height=50)
+video_control_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
+ 
+event_info_frame = ttk.Frame(root, width=1200, height=150)
+event_info_frame.grid(row=4, column=0, columnspan=3, sticky="n")
+ 
+root.grid_rowconfigure(0, weight=0)
+root.grid_rowconfigure(1, weight=2)  
+root.grid_rowconfigure(2, weight=0)  
+root.grid_rowconfigure(3, weight=0)  
+root.grid_rowconfigure(4, weight=1)
+ 
+root.grid_columnconfigure(0, weight=1)
+root.grid_columnconfigure(1, weight=2)  
+root.grid_columnconfigure(2, weight=1)  
+ 
+video_label = ttk.Label(video_frame)
+video_label.grid(row=0, column=0, sticky="nsew")
+ 
+mouse_options = ttk.Combobox(file_control_frame, values= mice)
+mouse_options.set(f"{selected_mouse}")
+mouse_options.pack(side=tk.LEFT, padx=5)
+ 
+mouse_selection_button = tk.Button(file_control_frame, text="Confirm Mouse", command=set_mouse)
+mouse_selection_button.pack(side=tk.LEFT, padx=5)
+ 
+file_options = ttk.Combobox(file_control_frame, values= files)
+file_options.set(f"{selected_file}")
+file_options.pack(side=tk.LEFT, padx=5)
+ 
+file_selection_button = tk.Button(file_control_frame, text= "Confirm File", command=set_file)
+file_selection_button.pack(side=tk.LEFT, padx=5)
+ 
+play_button = ttk.Button(video_control_frame, text="Play/Pause", command=play_pause_video)
+play_button.pack(side=tk.LEFT, padx=5)
+ 
+prev_button = ttk.Button(video_control_frame, text="Previous Event", command=previous_event)
+prev_button.pack(side=tk.LEFT, padx=5)
+ 
+next_button = ttk.Button(video_control_frame, text="Next Event", command=next_event)
+next_button.pack(side=tk.LEFT, padx=5)
+ 
+jump_backward_button = ttk.Button(video_control_frame, text="Jump -5s", command=jump_backward)
+jump_backward_button.pack(side=tk.LEFT, padx=5)
+ 
+jump_forward_button = ttk.Button(video_control_frame, text="Jump +15s", command=jump_forward)
+jump_forward_button.pack(side=tk.LEFT, padx=5)
+ 
+event_label = ttk.Label(event_info_frame, text="Event Information")
+event_label.pack(side=tk.TOP, pady=5)
+ 
+event_textbox = tk.Text(event_info_frame, height=5, wrap=tk.WORD, width=100)
+event_textbox.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
+ 
+event_textbox.insert(tk.END, f"Max Spikes: {max_spikes} \t Max Linelength: {max_arclength} \t Event Duration: {event_duration}s \t Cage Number: {cage_num}")
+ 
+create_plot(graph_frame)
+ 
+cap = cv2.VideoCapture(os.path.join(video_path, selected_video))
+time_difference = event_start_time - selected_video_start_time
+time_from_start = time_difference.total_seconds()
+ 
+cap.set(cv2.CAP_PROP_POS_FRAMES, int(time_from_start * 30 - 5 * 30))
+ 
+if cap.isOpened():
+    update_frame()
+else:
+    print("Error: Could not open video file.")
+ 
+root.mainloop()
+ 
+if cap is not None:
+    cap.release()
