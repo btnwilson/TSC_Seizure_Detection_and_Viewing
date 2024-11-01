@@ -11,7 +11,8 @@ import numpy as np
 import matplotlib.dates as mdates
 import threading
 import queue
- 
+import time
+
 plt.ioff()
 mice = os.listdir("Z:\Emily\TSCproject\Event Identification Events\eventid\Events")
 selected_mouse = "cmvcre3_136"
@@ -133,6 +134,7 @@ def next_event():
     global current_event_index
     if current_event_index < len(data) - 1:
         current_event_index += 1
+        time.sleep(0.5)
         update_plots()
     else:
         event_textbox.delete(1.0, tk.END)
@@ -142,6 +144,7 @@ def previous_event():
     global current_event_index
     if current_event_index > 0:
         current_event_index -= 1
+        time.sleep(0.5)
         update_plots()
     else:
         event_textbox.delete(1.0, tk.END)
