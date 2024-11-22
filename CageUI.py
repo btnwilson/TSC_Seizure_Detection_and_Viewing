@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
@@ -12,6 +11,7 @@ import numpy as np
 import matplotlib.dates as mdates
 import threading
 import queue
+import time
 
 plt.ioff()
 mice = os.listdir("Events/")
@@ -22,7 +22,7 @@ selected_file = files[10]
 
 video_path = "D:/TSC Cage Videos"  #Change to correct path to video location for your device
 videos = os.listdir(video_path)
-video_start_times = [datetime.strptime(name.removesuffix(".mp4"), "%Y-%m-%d %H-%M-%S") for name in videos]
+video_start_times = [datetime.strptime(name.replace(".mp4", "").replace(".mkv", ""), "%Y-%m-%d %H-%M-%S") for name in videos]
 
 with open(os.path.join(file_path, selected_file), 'rb') as f:
     data = pickle.load(f)
@@ -35,10 +35,12 @@ is_playing = False
 cap = None
 frame_queue = queue.Queue()
 last_frame = None
+time_marker_ax = None
+start_frame_index = None
 
 sorted_indices = sorted(range(len(video_start_times)), key=lambda i: video_start_times[i])
-sorted_video_start_times = [video_start_times[i] for i in sorted_indices]
-sorted_video_names = [videos[i] for i in sorted_indices]
+sorted_video_start_times = np.array([video_start_times[i] for i in sorted_indices])
+sorted_video_names = np.array([videos[i] for i in sorted_indices])
 
 eeg_data = data[f"Event {current_event_index}"]["EEG Signal"]
 event_start_time = datetime.strptime(data[f"Event {current_event_index}"]["Start Time"], "%m-%d-%Y %H:%M:%S")
@@ -48,15 +50,22 @@ max_arclength = data[f"Event {current_event_index}"]["Max Arclength"]
 event_duration = data[f"Event {current_event_index}"]["Duration"]
 cage_num = data[f"Event {current_event_index}"]["Cage Number"]
 
-selected_video = None
+selected_videos = []
 selected_video_start_time = None
+time_window = timedelta(minutes=60)
 for video_number in range(len(sorted_video_start_times) - 1):
     if sorted_video_start_times[video_number] <= event_start_time <= sorted_video_start_times[video_number + 1]:
-        selected_video = sorted_video_names[video_number]
-        selected_video_start_time = sorted_video_start_times[video_number]
+        potential_videos = (sorted_video_start_times >= sorted_video_start_times[video_number] - time_window) & (sorted_video_start_times <= sorted_video_start_times[video_number])
+        if np.sum(potential_videos) > 0:
+            selected_videos = list(sorted_video_names[potential_videos])
+        else:
+            selected_videos = list(sorted_video_names[video_number])
         break
+selected_video = selected_videos[0]
+selected_video_start_time = datetime.strptime(selected_video.replace(".mp4", "").replace(".mkv", ""), "%Y-%m-%d %H-%M-%S")
 
 def create_plot(frame):
+    global time_marker_ax
     try:
         for widget in frame.winfo_children():
             widget.destroy()
@@ -76,7 +85,7 @@ def create_plot(frame):
         
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M:%S'))
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-
+        
         plt.xticks(rotation=45)
         plt.tight_layout() 
         
@@ -110,12 +119,19 @@ def play_video():
             is_playing = False
 
 def update_frame():
+    global time_marker_ax, event_start_time, start_frame_index
     try:
         if not frame_queue.empty():
             img = frame_queue.get_nowait()
-            # Update GUI in the main thread using `after` method
             video_label.imgtk = img
             video_label.configure(image=img)
+            
+            current_frame = cap.get(cv2.CAP_PROP_POS_FRAMES)
+            frame_dif = max(0, current_frame - start_frame_index)
+            current_frame_sec = int(frame_dif / 30) # 30 is sampling frequency
+            current_frame_time = event_start_time + timedelta(seconds=current_frame_sec)
+            
+            
         video_label.after(5, update_frame)
     except Exception as e:
         print(f"Error in update_frame: {e}")
@@ -133,7 +149,12 @@ def next_event():
     global current_event_index
     if current_event_index < len(data) - 1:
         current_event_index += 1
+        time.sleep(0.5)
+        
+        find_possible_videos()
+        
         update_plots()
+        
     else:
         event_textbox.delete(1.0, tk.END)
         event_textbox.insert(tk.END, "All Events Viewed")
@@ -142,6 +163,10 @@ def previous_event():
     global current_event_index
     if current_event_index > 0:
         current_event_index -= 1
+        time.sleep(0.5)
+        
+        find_possible_videos()
+        
         update_plots()
     else:
         event_textbox.delete(1.0, tk.END)
@@ -170,19 +195,13 @@ def jump_backward():
             print(f"Error in jump_backward: {e}")
 
 def update_plots():
-    global cap, selected_video, selected_video_start_time, last_frame
+    global cap, selected_video, selected_video_start_time, last_frame, start_frame_index, selected_videos
     
     if cap is not None:
         cap.release()
     
     eeg_data = data[f"Event {current_event_index}"]["EEG Signal"]
     event_start_time = datetime.strptime(data[f"Event {current_event_index}"]["Start Time"], "%m-%d-%Y %H:%M:%S")
-    
-    for video_number in range(len(sorted_video_start_times) - 1):
-        if sorted_video_start_times[video_number] <= event_start_time <= sorted_video_start_times[video_number + 1]:
-            selected_video = sorted_video_names[video_number]
-            selected_video_start_time = sorted_video_start_times[video_number]
-            break
     
     cap = cv2.VideoCapture(os.path.join(video_path, selected_video))
     
@@ -199,7 +218,8 @@ def update_plots():
         
         time_difference = event_start_time - selected_video_start_time
         time_from_start = time_difference.total_seconds()
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(time_from_start * 30 - 5 * 30))
+        start_frame_index = int(time_from_start * 30 - 5 * 30)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame_index)
         
         create_plot(graph_frame)
         
@@ -238,9 +258,35 @@ def set_mouse():
     file_options['values'] = files
     file_options.set(f"")
 
+def set_video():
+    global selected_video_start_time, selected_video
+    
+    selected_video = video_options.get()
+    selected_video_start_time = datetime.strptime(selected_video.replace(".mp4", "").replace(".mkv", ""), "%Y-%m-%d %H-%M-%S")
+    update_plots()
+    
+def find_possible_videos():
+    global selected_video_start_time, selected_video, selected_videos, sorted_video_start_times, sorted_video_names
+    time_window = timedelta(minutes=60)
+    for video_number in range(len(sorted_video_start_times) - 1):
+        if sorted_video_start_times[video_number] <= event_start_time <= sorted_video_start_times[video_number + 1]:
+            potential_videos = (sorted_video_start_times >= sorted_video_start_times[video_number] - time_window) & (sorted_video_start_times <= sorted_video_start_times[video_number])
+            if np.sum(potential_videos) > 0:
+                selected_videos = list(sorted_video_names[potential_videos])
+            else:
+                selected_videos = list(sorted_video_names[potential_videos])
+            break
+        
+    selected_video = selected_videos[0]
+    selected_video_start_time = datetime.strptime(selected_video.replace(".mp4", "").replace(".mkv", ""), "%Y-%m-%d %H-%M-%S")
+    
+    video_options['values'] = selected_videos
+    video_options.set(f"{selected_video}")
+
+
 root = tk.Tk()
 root.title("EEG Event Video Player")
-root.geometry("1200x800")  # Set the window size
+root.geometry("1200x800")  
 
 file_control_frame = ttk.Frame(root, height=50)
 file_control_frame.grid(row=0, column=0, columnspan=3, sticky="ew")
@@ -284,6 +330,13 @@ file_options.pack(side=tk.LEFT, padx=5)
 file_selection_button = tk.Button(file_control_frame, text= "Confirm File", command=set_file)
 file_selection_button.pack(side=tk.LEFT, padx=5)
 
+video_options = ttk.Combobox(file_control_frame, values=selected_videos)
+video_options.set(f"{selected_videos[0]}")
+video_options.pack(side=tk.RIGHT, padx=5)
+
+video_selection_button = tk.Button(file_control_frame, text= "Confirm Video", command=set_video)
+video_selection_button.pack(side=tk.RIGHT, padx=5)
+
 play_button = ttk.Button(video_control_frame, text="Play/Pause", command=play_pause_video)
 play_button.pack(side=tk.LEFT, padx=5)
 
@@ -313,7 +366,8 @@ cap = cv2.VideoCapture(os.path.join(video_path, selected_video))
 time_difference = event_start_time - selected_video_start_time
 time_from_start = time_difference.total_seconds()
 
-cap.set(cv2.CAP_PROP_POS_FRAMES, int(time_from_start * 30 - 5 * 30))
+start_frame_index = int(time_from_start * 30 - 5 * 30)
+cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame_index)
 
 if cap.isOpened():
     update_frame()
