@@ -94,7 +94,7 @@ class MainWindow(QMainWindow):
         self.jump_forward_button = QPushButton("Jump +15s")
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
-        self.slider.setRange(0, 6)
+        self.slider.setRange(0, 8)
         self.slider.setTickInterval(1)
         self.slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.slider.setMaximumWidth(200)
@@ -125,7 +125,7 @@ class MainWindow(QMainWindow):
         self.text_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.text_box.setFixedHeight(50)
         self.text_box.setPlainText("Event Information Will Be Displayed Here")
-        self.text_box.setReadOnly(True)  # Make the text box non-editable
+        self.text_box.setReadOnly(True)  
 
         # Adding all rows to main layout
         main_layout.addLayout(row1_layout)
@@ -148,7 +148,6 @@ class MainWindow(QMainWindow):
         self.file_dropdown.addItems(os.listdir(os.path.join("Events", selected_mouse)))
         selected_file = self.file_dropdown.currentText()
         self.pickle_location = os.path.join("Events", selected_mouse, selected_file)
-        print(self.pickle_location)
         self.data = None
         self.current_event_index = 0
         self.open_pickle()
@@ -287,7 +286,6 @@ class MainWindow(QMainWindow):
         self.playback_speed = self.get_playback_speed()
         self.milliseconds_per_frame = int(1000 /(self.video_fs * self.playback_speed))
         self.video_timer.setInterval(self.milliseconds_per_frame)
-        print("Playback speed changed")
         self.video_timer.start()
 
     def jump_forward(self):
@@ -333,6 +331,16 @@ class MainWindow(QMainWindow):
     def process_next_event(self):
         try:
             self.video_timer.stop()
+
+            self.eeg_data = self.data[f"Event {self.current_event_index}"]["EEG Signal"]
+            self.event_start_time = datetime.strptime(self.data[f"Event {self.current_event_index}"]["Start Time"],
+                                                      "%m-%d-%Y %H:%M:%S")
+
+            self.max_spikes = self.data[f"Event {self.current_event_index}"]["Max Spikes"]
+            self.max_arclength = self.data[f"Event {self.current_event_index}"]["Max Arclength"]
+            self.event_duration = self.data[f"Event {self.current_event_index}"]["Duration"]
+            self.cage_num = self.data[f"Event {self.current_event_index}"]["Cage Number"]
+
             # This logic will run after the delay
             self.identify_videos()
 
@@ -356,44 +364,33 @@ class MainWindow(QMainWindow):
         else:
             self.text_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.text_box.setPlainText("No Previous Events")
-        print("Going to previous event")
+
 
     def mouse_changed(self):
-        print("option changed")
         self.current_event_index = 0
         selected_mouse = self.mice_dropdown.currentText()
-        print(selected_mouse)
         self.file_dropdown.clear()
         files = os.listdir(os.path.join("Events", selected_mouse))
-        print(files)
         self.file_dropdown.addItems(files)
-        print("dropdown updated")
         selected_file = self.file_dropdown.currentText()
-        print(selected_file)
         self.pickle_location = os.path.join("Events", selected_mouse, selected_file)
-        print(self.pickle_location)
         self.open_pickle()
         self.identify_videos()
         self.change_video()
-        print("Mouse changed")
 
     def file_changed(self):
         self.current_event_index = 0
         selected_mouse = self.mice_dropdown.currentText()
         selected_file = self.file_dropdown.currentText()
         self.pickle_location = os.path.join("Events", selected_mouse, selected_file)
-        print(self.pickle_location)
         self.open_pickle()
         self.identify_videos()
         self.change_video()
-
-        print("File changed")
 
     def video_changed(self):
         self.selected_video = self.video_dropdown.currentText()
         self.selected_video_start_time = datetime.strptime(self.selected_video.replace(".mp4", "").replace(".mkv", ""),"%Y-%m-%d %H-%M-%S")
         self.change_video()
-        print("Video changed")
 
     def open_pickle(self):
         with open(self.pickle_location, 'rb') as f:
@@ -414,10 +411,6 @@ class MainWindow(QMainWindow):
         return slider_value * .25 + .5
 
     def identify_videos(self):
-        print(self.sorted_video_start_times)
-        print("Entered identify_videos()")
-        print("Event Start Time:", self.event_start_time)
-
         selected_videos = []
         time_window = timedelta(minutes=60)  # 60-minute search window
         max_days = timedelta(days=5)
@@ -425,7 +418,6 @@ class MainWindow(QMainWindow):
         for video_number in range(len(self.sorted_video_start_times) - 1):
             if self.sorted_video_start_times[video_number] <= self.event_start_time <= self.sorted_video_start_times[video_number + 1]:
                 potential_videos = (self.sorted_video_start_times >= self.sorted_video_start_times[video_number] - time_window) & (self.sorted_video_start_times <= self.sorted_video_start_times[video_number])
-                print(potential_videos)
 
                 filtered_videos = []
                 for i, valid in enumerate(potential_videos):
@@ -441,15 +433,7 @@ class MainWindow(QMainWindow):
                 else:
                     selected_videos = []
                 break
-                #if np.sum(potential_videos) > 0:
-                    #selected_videos = list(self.sorted_video_names[potential_videos])
-                #else:
-                    #selected_videos = []
-                #break
 
-        print("Identified videos:", selected_videos)  # Debugging print
-
-        # Update video dropdown safely
         self.video_dropdown.blockSignals(True)
         self.video_dropdown.clear()
 
