@@ -223,6 +223,8 @@ class MainWindow(QMainWindow):
             if self.cap is not None:
                 self.cap.release()
 
+            self.event_start_time = datetime.strptime(self.data[f"Event {self.current_event_index}"]["Start Time"],
+                                                      "%m-%d-%Y %H:%M:%S")
             self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
 
             if not self.cap.isOpened():
@@ -256,7 +258,8 @@ class MainWindow(QMainWindow):
                 self.event_duration = self.data[f"Event {self.current_event_index}"]["Duration"]
                 self.cage_num = self.data[f"Event {self.current_event_index}"]["Cage Number"]
 
-                self.text_box.setPlainText(f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}")
+
+                self.text_box.setPlainText(f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num} \t Start Time: {self.event_start_time}")
 
                 self.plot_widget.updateplot(self.eeg_data, self.fs, self.event_start_time, self.current_event_index, self.file_dropdown.currentText())
 
@@ -274,7 +277,7 @@ class MainWindow(QMainWindow):
         self.cage_num = self.data[f"Event {self.current_event_index}"]["Cage Number"]
 
         self.text_box.setPlainText(
-            f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}")
+            f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}  \t Start Time: {self.event_start_time}")
 
         self.plot_widget.updateplot(self.eeg_data, self.fs, self.event_start_time, self.current_event_index, self.file_dropdown.currentText())
 
@@ -403,7 +406,7 @@ class MainWindow(QMainWindow):
         self.max_arclength = self.data[f"Event {self.current_event_index}"]["Max Arclength"]
         self.event_duration = self.data[f"Event {self.current_event_index}"]["Duration"]
         self.cage_num = self.data[f"Event {self.current_event_index}"]["Cage Number"]
-        self.text_box.setPlainText(f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}")
+        self.text_box.setPlainText(f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}  \t Start Time: {self.event_start_time}")
 
     def get_playback_speed(self):
         slider_value = self.slider.value()
