@@ -139,7 +139,8 @@ class MainWindow(QMainWindow):
         # ---------------------------------------------------------
 
         #initialization of video playing and plot
-        data_location = "C:/Users/bentn/OneDrive - University of Vermont/Desktop/Work/New data"
+        #data_location = "C:/Users/bentn/OneDrive - University of Vermont/Desktop/Work/New data"
+        data_location = "Z:\Emily\TSCproject\Event Identification Events\eventid"
         os.chdir(data_location)
         mice = [f for f in os.listdir("Events/") if ".DS_Store" not in f]
         self.mice_dropdown.addItems(mice)
@@ -152,7 +153,7 @@ class MainWindow(QMainWindow):
         self.current_event_index = 0
         self.open_pickle()
 
-        self.video_path = "D:/TSC Cage Videos"
+        self.video_path = "Z:\Emily TSC Video Capturing"
         self.all_videos = os.listdir(self.video_path)
         self.video_start_times = [datetime.strptime(name.replace(".mp4", "").replace(".mkv", "").replace("._", ""), "%Y-%m-%d %H-%M-%S") for name in self.all_videos if name.endswith((".mp4", ".mkv"))]
 
