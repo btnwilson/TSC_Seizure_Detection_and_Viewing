@@ -14,12 +14,13 @@ import os
 import pickle
 from datetime import datetime, timedelta
 import cv2
+import matplotlib.dates as mdates
 import time
 
 class MatplotlibWidget(FigureCanvas):
     def __init__(self):#, width=11, height=3, dpi=100):
         self.fig = plt.Figure(figsize=(11, 3), dpi=100)
-
+        super(MatplotlibWidget, self).__init__(self.fig)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_title("EEG Trace", fontsize=10)
         self.ax.tick_params(axis='x', labelsize=8)
@@ -27,12 +28,17 @@ class MatplotlibWidget(FigureCanvas):
         self.ax.set_xlabel("Time (seconds)", fontsize=9)
         self.ax.set_ylabel("Normalized EEG", fontsize=9)
 
-        super(MatplotlibWidget, self).__init__(self.fig)
+        #super(MatplotlibWidget, self).__init__(self.fig)
 
-    def updateplot(self, x, y):  # Renamed from plot to updateplot
+    def updateplot(self, y, fs, event_start_time, current_event_index, selected_file):  # Renamed from plot to updateplot
+        interval = timedelta(seconds=1 / fs)
+        time_array = [event_start_time + i * interval for i in range(len(y))]
+        time_array = np.array(time_array)
         self.ax.clear()  # Clear previous plot
-        self.ax.plot(x, y)  # Plot new data
-        self.ax.set_title("EEG Trace")
+        self.ax.plot(time_array, y)  # Plot new data
+        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M:%S'))
+        self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        self.ax.set_title(f"Event {current_event_index + 1} from {selected_file}")
         self.draw()  # Use self.draw() instead of self.canvas.draw()
 
 
@@ -55,21 +61,22 @@ class MainWindow(QMainWindow):
         self.file_dropdown.setMinimumWidth(200)
         self.video_dropdown = QComboBox()
         self.video_dropdown.setMinimumWidth(200)
-
-        # Labels for dropdowns
-        label1 = QLabel("Selected Mouse")
-        label2 = QLabel("Selected File")
-        label3 = QLabel("Selected Video")
+        self.mouse_selection_button = QPushButton("Select Mouse")
+        self.file_selection_button = QPushButton("Select File")
+        self.video_selection_button = QPushButton("Select Video")
 
         # Add the dropdowns and labels to row1_layout
-        row1_layout.addWidget(label1)
+
         row1_layout.addWidget(self.mice_dropdown)
+        row1_layout.addWidget(self.mouse_selection_button)
         row1_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-        row1_layout.addWidget(label2)
+
         row1_layout.addWidget(self.file_dropdown)
+        row1_layout.addWidget(self.file_selection_button)
         row1_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-        row1_layout.addWidget(label3)
+
         row1_layout.addWidget(self.video_dropdown)
+        row1_layout.addWidget(self.video_selection_button)
 
         # Row 2: Video window placeholder
         self.video_widget = QLabel(self)  # Placeholder for video window
@@ -112,9 +119,6 @@ class MainWindow(QMainWindow):
         self.plot_widget = MatplotlibWidget()
         self.plot_widget.setMinimumHeight(200)
         self.plot_widget.setMinimumWidth(500)
-        x = np.linspace(0, 10, 100)
-        y = np.sin(x)
-        self.plot_widget.updateplot(x, y)
 
         # Row 5: Text box at the bottom (non-editable)
         self.text_box = QTextEdit(self)
@@ -134,26 +138,25 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         # ---------------------------------------------------------
 
-        #initialization of video playing
-        data_location = "C:/Users/bentn/OneDrive/Desktop/Work/New data"
+        #initialization of video playing and plot
+        data_location = "C:/Users/bentn/OneDrive - University of Vermont/Desktop/Work/New data"
         os.chdir(data_location)
-        self.mice_dropdown.addItems(os.listdir("Events/"))
+        mice = [f for f in os.listdir("Events/") if ".DS_Store" not in f]
+        self.mice_dropdown.addItems(mice)
         selected_mouse = self.mice_dropdown.currentText()
-        selected_mouse = "f87tsc1l3_180"
         self.file_dropdown.addItems(os.listdir(os.path.join("Events", selected_mouse)))
         selected_file = self.file_dropdown.currentText()
-        selected_file = "110623_174017_16613.pkl"
         self.pickle_location = os.path.join("Events", selected_mouse, selected_file)
         print(self.pickle_location)
         self.data = None
+        self.current_event_index = 0
         self.open_pickle()
 
         self.video_path = "D:/TSC Cage Videos"
         self.all_videos = os.listdir(self.video_path)
-        self.video_start_times = [datetime.strptime(name.replace(".mp4", "").replace(".mkv", ""), "%Y-%m-%d %H-%M-%S") for name in self.all_videos]
+        self.video_start_times = [datetime.strptime(name.replace(".mp4", "").replace(".mkv", "").replace("._", ""), "%Y-%m-%d %H-%M-%S") for name in self.all_videos if name.endswith((".mp4", ".mkv"))]
 
-
-        self.current_event_index = 0
+        self.fs = 256
         self.video_fs = 30
         self.playback_speed = self.get_playback_speed()
         self.milliseconds_per_frame = int(1000 /(self.video_fs * self.playback_speed))
@@ -166,31 +169,24 @@ class MainWindow(QMainWindow):
         self.sorted_video_start_times = np.array([self.video_start_times[i] for i in sorted_indices])
         self.sorted_video_names = np.array([self.all_videos[i] for i in sorted_indices])
 
-        self.eeg_data = self.data[f"Event {self.current_event_index}"]["EEG Signal"]
-        self.event_start_time = datetime.strptime(self.data[f"Event {self.current_event_index}"]["Start Time"], "%m-%d-%Y %H:%M:%S")
-
-        self.max_spikes = self.data[f"Event {self.current_event_index}"]["Max Spikes"]
-        self.max_arclength = self.data[f"Event {self.current_event_index}"]["Max Arclength"]
-        self.event_duration = self.data[f"Event {self.current_event_index}"]["Duration"]
-        self.cage_num = self.data[f"Event {self.current_event_index}"]["Cage Number"]
-        self.text_box.setPlainText(f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}")
-        self.plot_widget.updateplot(np.arange(0,len(self.eeg_data))/256, self.eeg_data)
+        self.plot_widget.updateplot(self.eeg_data, self.fs, self.event_start_time, self.current_event_index, self.file_dropdown.currentText())
 
         self.selected_video = None
         self.selected_video_start_time = None
         self.identify_videos()
 
-        self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
-        time_difference = self.event_start_time - self.selected_video_start_time
-        time_from_start = time_difference.total_seconds()
-        start_frame_index = int(time_from_start * 30 - 5 * 30)
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame_index)
+        if self.selected_video != None:
+            self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
+            time_difference = self.event_start_time - self.selected_video_start_time
+            time_from_start = time_difference.total_seconds()
+            start_frame_index = int(time_from_start * 30 - 5 * 30)
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame_index)
 
 
         # button functionality
-        self.mice_dropdown.currentIndexChanged.connect(self.mouse_changed)
-        self.file_dropdown.currentIndexChanged.connect(self.file_changed)
-        self.video_dropdown.currentIndexChanged.connect(self.video_changed)
+        self.mouse_selection_button.clicked.connect(self.mouse_changed)
+        self.file_selection_button.clicked.connect(self.file_changed)
+        self.video_selection_button.clicked.connect(self.video_changed)
         self.play_pause_button.clicked.connect(self.play_pause)
         self.previous_button.clicked.connect(self.go_to_previous_event)
         self.next_button.clicked.connect(self.go_to_next_event)
@@ -203,7 +199,7 @@ class MainWindow(QMainWindow):
         self.video_timer.timeout.connect(self.update_video_frame)
         self.video_timer.start()
     def update_video_frame(self):
-        if self.isplaying:
+        if self.isplaying and self.selected_video != None:
             # Read a frame from the video capture object
 
             ret, frame = self.cap.read()
@@ -223,37 +219,65 @@ class MainWindow(QMainWindow):
                 self.video_widget.setPixmap(pixmap)
 
     def change_video(self):
-        if self.cap is not None:
-            self.cap.release()
+        if self.selected_video != None:
+            if self.cap is not None:
+                self.cap.release()
+
+            self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
+
+            if not self.cap.isOpened():
+                print(f"Error: Unable to open video file {self.selected_video}")
+                return
+            try:
+                ret, frame = self.cap.read()
+
+                time_difference = self.event_start_time - self.selected_video_start_time
+                time_from_start = time_difference.total_seconds()
+                start_frame_index = int(time_from_start * 30 - 5 * 30)
+
+                total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+                if start_frame_index < total_frames:
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame_index)
+                    self.video_widget.setStyleSheet(
+                        "background-color: black; color: white; font-size: 18px; font-weight: bold;")
+                    self.video_widget.setText(
+                        "Video Available Press Play/Pause")  # Display text when no video is loaded
+                    self.video_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                else:
+                    self.video_widget.setStyleSheet("background-color: black; color: white; font-size: 18px; font-weight: bold;")
+                    self.video_widget.setText("No Video Available")
+                    self.video_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+
+                self.max_spikes = self.data[f"Event {self.current_event_index}"]["Max Spikes"]
+                self.max_arclength = self.data[f"Event {self.current_event_index}"]["Max Arclength"]
+                self.event_duration = self.data[f"Event {self.current_event_index}"]["Duration"]
+                self.cage_num = self.data[f"Event {self.current_event_index}"]["Cage Number"]
+
+                self.text_box.setPlainText(f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}")
+
+                self.plot_widget.updateplot(self.eeg_data, self.fs, self.event_start_time, self.current_event_index, self.file_dropdown.currentText())
+
+
+                self.video_timer.start()
+            except Exception as e:
+                print(f"Error in change video: {e}")
 
         self.eeg_data = self.data[f"Event {self.current_event_index}"]["EEG Signal"]
-        self.event_start_time = datetime.strptime(self.data[f"Event {self.current_event_index}"]["Start Time"], "%m-%d-%Y %H:%M:%S")
+        self.event_start_time = datetime.strptime(self.data[f"Event {self.current_event_index}"]["Start Time"],
+                                                  "%m-%d-%Y %H:%M:%S")
+        self.max_spikes = self.data[f"Event {self.current_event_index}"]["Max Spikes"]
+        self.max_arclength = self.data[f"Event {self.current_event_index}"]["Max Arclength"]
+        self.event_duration = self.data[f"Event {self.current_event_index}"]["Duration"]
+        self.cage_num = self.data[f"Event {self.current_event_index}"]["Cage Number"]
 
-        self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
+        self.text_box.setPlainText(
+            f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}")
 
-        if not self.cap.isOpened():
-            print(f"Error: Unable to open video file {self.selected_video}")
-            return
-        try:
-            ret, frame = self.cap.read()
+        self.plot_widget.updateplot(self.eeg_data, self.fs, self.event_start_time, self.current_event_index, self.file_dropdown.currentText())
 
-            time_difference = self.event_start_time - self.selected_video_start_time
-            time_from_start = time_difference.total_seconds()
-            start_frame_index = int(time_from_start * 30 - 5 * 30)
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame_index)
-
-            self.max_spikes = self.data[f"Event {self.current_event_index}"]["Max Spikes"]
-            self.max_arclength = self.data[f"Event {self.current_event_index}"]["Max Arclength"]
-            self.event_duration = self.data[f"Event {self.current_event_index}"]["Duration"]
-            self.cage_num = self.data[f"Event {self.current_event_index}"]["Cage Number"]
-
-            self.text_box.setPlainText(f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}")
-
-            self.plot_widget.updateplot(np.arange(0, len(self.eeg_data))/256, self.eeg_data)
-
-            self.video_timer.start()
-        except Exception as e:
-            print(f"Error in change video: {e}")
     def change_playback_speed(self):
         self.video_timer.stop()
         self.playback_speed = self.get_playback_speed()
@@ -267,7 +291,17 @@ class MainWindow(QMainWindow):
             try:
                 self.video_timer.stop()
                 current_frame = self.cap.get(cv2.CAP_PROP_POS_FRAMES)
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, current_frame + 15 * 30))
+
+                jump_frame = current_frame + 15 * 30
+                total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                if jump_frame < total_frames:
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, jump_frame))
+                else:
+                    self.video_widget.setStyleSheet(
+                        "background-color: black; color: white; font-size: 18px; font-weight: bold;")
+                    self.video_widget.setText("No Video Available")
+                    self.video_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
                 self.video_timer.start()
             except Exception as e:
                 print(f"Error in jump_backward: {e}")
@@ -277,6 +311,7 @@ class MainWindow(QMainWindow):
             try:
                 self.video_timer.stop()
                 current_frame = self.cap.get(cv2.CAP_PROP_POS_FRAMES)
+
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, current_frame - 5 * 30))
                 self.video_timer.start()
             except Exception as e:
@@ -321,7 +356,7 @@ class MainWindow(QMainWindow):
 
     def mouse_changed(self):
         print("option changed")
-        self.mice_dropdown.blockSignals(True)
+        self.current_event_index = 0
         selected_mouse = self.mice_dropdown.currentText()
         print(selected_mouse)
         self.file_dropdown.clear()
@@ -330,20 +365,24 @@ class MainWindow(QMainWindow):
         self.file_dropdown.addItems(files)
         print("dropdown updated")
         selected_file = self.file_dropdown.currentText()
+        print(selected_file)
         self.pickle_location = os.path.join("Events", selected_mouse, selected_file)
         print(self.pickle_location)
         self.open_pickle()
+        self.identify_videos()
         self.change_video()
         print("Mouse changed")
-        self.mice_dropdown.blockSignals(False)
 
     def file_changed(self):
+        self.current_event_index = 0
         selected_mouse = self.mice_dropdown.currentText()
         selected_file = self.file_dropdown.currentText()
         self.pickle_location = os.path.join("Events", selected_mouse, selected_file)
         print(self.pickle_location)
         self.open_pickle()
+        self.identify_videos()
         self.change_video()
+
         print("File changed")
 
     def video_changed(self):
@@ -356,27 +395,75 @@ class MainWindow(QMainWindow):
         with open(self.pickle_location, 'rb') as f:
             self.data = pickle.load(f)
 
+        self.eeg_data = self.data[f"Event {self.current_event_index}"]["EEG Signal"]
+        self.event_start_time = datetime.strptime(self.data[f"Event {self.current_event_index}"]["Start Time"],
+                                                  "%m-%d-%Y %H:%M:%S")
+
+        self.max_spikes = self.data[f"Event {self.current_event_index}"]["Max Spikes"]
+        self.max_arclength = self.data[f"Event {self.current_event_index}"]["Max Arclength"]
+        self.event_duration = self.data[f"Event {self.current_event_index}"]["Duration"]
+        self.cage_num = self.data[f"Event {self.current_event_index}"]["Cage Number"]
+        self.text_box.setPlainText(f"Max Spikes: {self.max_spikes} \t Max Linelength: {self.max_arclength} \t Event Duration: {self.event_duration}s \t Cage Number: {self.cage_num}")
+
     def get_playback_speed(self):
         slider_value = self.slider.value()
         return slider_value * .25 + .5
 
     def identify_videos(self):
-        #self.video_dropdown.clear()
+        print(self.sorted_video_start_times)
+        print("Entered identify_videos()")
+        print("Event Start Time:", self.event_start_time)
+
         selected_videos = []
-        selected_video_start_time = None
-        time_window = timedelta(minutes=60)
+        time_window = timedelta(minutes=60)  # 60-minute search window
+        max_days = timedelta(days=5)
+
         for video_number in range(len(self.sorted_video_start_times) - 1):
             if self.sorted_video_start_times[video_number] <= self.event_start_time <= self.sorted_video_start_times[video_number + 1]:
                 potential_videos = (self.sorted_video_start_times >= self.sorted_video_start_times[video_number] - time_window) & (self.sorted_video_start_times <= self.sorted_video_start_times[video_number])
-                if np.sum(potential_videos) > 0:
-                    selected_videos = list(self.sorted_video_names[potential_videos])
-                else:
-                    selected_videos = list(self.sorted_video_names[video_number])
-                break
+                print(potential_videos)
 
-        self.video_dropdown.addItems(selected_videos)
-        self.selected_video = self.video_dropdown.currentText()
-        self.selected_video_start_time = datetime.strptime(self.selected_video.replace(".mp4", "").replace(".mkv", ""),"%Y-%m-%d %H-%M-%S")
+                filtered_videos = []
+                for i, valid in enumerate(potential_videos):
+                    if valid:
+                        video_time = self.sorted_video_start_times[i]
+                        time_difference = abs(self.event_start_time - video_time)
+
+                        if time_difference <= max_days:
+                            filtered_videos.append(self.sorted_video_names[i])
+
+                if filtered_videos:
+                    selected_videos = filtered_videos
+                else:
+                    selected_videos = []
+                break
+                #if np.sum(potential_videos) > 0:
+                    #selected_videos = list(self.sorted_video_names[potential_videos])
+                #else:
+                    #selected_videos = []
+                #break
+
+        print("Identified videos:", selected_videos)  # Debugging print
+
+        # Update video dropdown safely
+        self.video_dropdown.blockSignals(True)
+        self.video_dropdown.clear()
+
+        if selected_videos:
+            self.video_dropdown.addItems(selected_videos)
+            self.video_dropdown.setCurrentIndex(0)
+            self.selected_video = self.video_dropdown.currentText()
+            self.selected_video_start_time = datetime.strptime(
+                self.selected_video.replace(".mp4", "").replace(".mkv", ""), "%Y-%m-%d %H-%M-%S")
+
+        else:
+            self.selected_video = None
+            self.selected_video_start_time = None
+            self.video_widget.setStyleSheet("background-color: black; color: white; font-size: 18px; font-weight: bold;")
+            self.video_widget.setText("No Video Available")  # Display text when no video is loaded
+            self.video_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.video_dropdown.blockSignals(False)
 
 
 if __name__ == "__main__":
@@ -384,3 +471,11 @@ if __name__ == "__main__":
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
+
+
+
+
+
+
+
+
