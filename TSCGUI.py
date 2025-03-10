@@ -225,6 +225,8 @@ class MainWindow(QMainWindow):
 
             self.event_start_time = datetime.strptime(self.data[f"Event {self.current_event_index}"]["Start Time"],
                                                       "%m-%d-%Y %H:%M:%S")
+            print(self.event_start_time)
+            
             self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
 
             if not self.cap.isOpened():
@@ -233,7 +235,9 @@ class MainWindow(QMainWindow):
             try:
                 ret, frame = self.cap.read()
 
+                print(self.selected_video_start_time)
                 time_difference = self.event_start_time - self.selected_video_start_time
+                print(time_difference)
                 time_from_start = time_difference.total_seconds()
                 start_frame_index = int(time_from_start * 30 - 5 * 30)
 
@@ -414,7 +418,7 @@ class MainWindow(QMainWindow):
         selected_videos = []
         time_window = timedelta(minutes=60)  # 60-minute search window
         max_days = timedelta(days=5)
-
+        print(selected_videos)
         for video_number in range(len(self.sorted_video_start_times) - 1):
             if self.sorted_video_start_times[video_number] <= self.event_start_time <= self.sorted_video_start_times[video_number + 1]:
                 potential_videos = (self.sorted_video_start_times >= self.sorted_video_start_times[video_number] - time_window) & (self.sorted_video_start_times <= self.sorted_video_start_times[video_number])
@@ -433,7 +437,7 @@ class MainWindow(QMainWindow):
                 else:
                     selected_videos = []
                 break
-
+        print(selected_videos)
         self.video_dropdown.blockSignals(True)
         self.video_dropdown.clear()
 
