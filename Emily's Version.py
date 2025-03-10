@@ -268,6 +268,8 @@ def set_video():
 def find_possible_videos():
     global selected_video_start_time, selected_video, selected_videos, sorted_video_start_times, sorted_video_names
     time_window = timedelta(minutes=60)
+    print(event_strart_time)
+    
     for video_number in range(len(sorted_video_start_times) - 1):
         if sorted_video_start_times[video_number] <= event_start_time <= sorted_video_start_times[video_number + 1]:
             potential_videos = (sorted_video_start_times >= sorted_video_start_times[video_number] - time_window) & (sorted_video_start_times <= sorted_video_start_times[video_number])
@@ -276,10 +278,10 @@ def find_possible_videos():
             else:
                 selected_videos = list(sorted_video_names[potential_videos])
             break
-        
+    print(selected_videos)
     selected_video = selected_videos[0]
     selected_video_start_time = datetime.strptime(selected_video.replace(".mp4", "").replace(".mkv", ""), "%Y-%m-%d %H-%M-%S")
-    
+    print(selected_video)
     video_options['values'] = selected_videos
     video_options.set(f"{selected_video}")
 
