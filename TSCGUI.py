@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
 
             self.event_start_time = datetime.strptime(self.data[f"Event {self.current_event_index}"]["Start Time"],
                                                       "%m-%d-%Y %H:%M:%S")
-            print(self.event_start_time)
+            print(f"Print Event Start Time: {self.event_start_time}")
             
             self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
 
@@ -235,14 +235,17 @@ class MainWindow(QMainWindow):
             try:
                 ret, frame = self.cap.read()
 
-                print(self.selected_video_start_time)
+                print(f"Video Start Time: {self.selected_video_start_time}")
                 time_difference = self.event_start_time - self.selected_video_start_time
-                print(time_difference)
+                print(f"Time difference seconds {time_difference}")
+                
                 time_from_start = time_difference.total_seconds()
                 start_frame_index = int(time_from_start * 30 - 5 * 30)
-
+                print(f"Start frame index: {start_frame_index}")
+                
                 total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
+                print(f"Total Frames in Video: {total_frames}")
+                
                 if start_frame_index < total_frames:
                     self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame_index)
                     self.video_widget.setStyleSheet(
@@ -252,6 +255,7 @@ class MainWindow(QMainWindow):
                     self.video_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
                 else:
+                    self.isplaying = False
                     self.video_widget.setStyleSheet("background-color: black; color: white; font-size: 18px; font-weight: bold;")
                     self.video_widget.setText("No Video Available")
                     self.video_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -303,6 +307,7 @@ class MainWindow(QMainWindow):
                 if jump_frame < total_frames:
                     self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, jump_frame))
                 else:
+                    self.isplaying = False
                     self.video_widget.setStyleSheet(
                         "background-color: black; color: white; font-size: 18px; font-weight: bold;")
                     self.video_widget.setText("No Video Available")
@@ -418,7 +423,8 @@ class MainWindow(QMainWindow):
         selected_videos = []
         time_window = timedelta(minutes=60)  # 60-minute search window
         max_days = timedelta(days=5)
-        print(selected_videos)
+        
+        print(f"Selected Videos Before: {selected_videos}")
         for video_number in range(len(self.sorted_video_start_times) - 1):
             if self.sorted_video_start_times[video_number] <= self.event_start_time <= self.sorted_video_start_times[video_number + 1]:
                 potential_videos = (self.sorted_video_start_times >= self.sorted_video_start_times[video_number] - time_window) & (self.sorted_video_start_times <= self.sorted_video_start_times[video_number])
@@ -437,7 +443,7 @@ class MainWindow(QMainWindow):
                 else:
                     selected_videos = []
                 break
-        print(selected_videos)
+        print(f"Selected Videos After: {selected_videos}")
         self.video_dropdown.blockSignals(True)
         self.video_dropdown.clear()
 
@@ -449,6 +455,7 @@ class MainWindow(QMainWindow):
                 self.selected_video.replace(".mp4", "").replace(".mkv", ""), "%Y-%m-%d %H-%M-%S")
 
         else:
+            self.isplaying = False
             self.selected_video = None
             self.selected_video_start_time = None
             self.video_widget.setStyleSheet("background-color: black; color: white; font-size: 18px; font-weight: bold;")
