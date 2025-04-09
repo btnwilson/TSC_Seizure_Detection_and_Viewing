@@ -177,9 +177,10 @@ class MainWindow(QMainWindow):
 
         if self.selected_video != None:
             self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
+            self.video_fs = cap.get(cv2.CAP_PROP_FPS)
             time_difference = self.event_start_time - self.selected_video_start_time
             time_from_start = time_difference.total_seconds()
-            start_frame_index = int(time_from_start * 30 - 5 * 30)
+            start_frame_index = int(time_from_start * self.video_fs - 5 * self.video_fs)
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame_index)
 
 
@@ -228,7 +229,7 @@ class MainWindow(QMainWindow):
             print(f"Print Event Start Time: {self.event_start_time}")
             
             self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
-
+            self.video_fs = cap.get(cv2.CAP_PROP_FPS)
             if not self.cap.isOpened():
                 print(f"Error: Unable to open video file {self.selected_video}")
                 return
@@ -240,7 +241,7 @@ class MainWindow(QMainWindow):
                 print(f"Time difference seconds {time_difference}")
                 
                 time_from_start = time_difference.total_seconds()
-                start_frame_index = int(time_from_start * 30 - 5 * 30)
+                start_frame_index = int(time_from_start * self.video_fs - 5 * self.video_fs)
                 print(f"Start frame index: {start_frame_index}")
                 
                 total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -302,7 +303,7 @@ class MainWindow(QMainWindow):
                 self.video_timer.stop()
                 current_frame = self.cap.get(cv2.CAP_PROP_POS_FRAMES)
 
-                jump_frame = current_frame + 15 * 30
+                jump_frame = current_frame + 15 * self.video_fs
                 total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 if jump_frame < total_frames:
                     self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, jump_frame))
@@ -323,7 +324,7 @@ class MainWindow(QMainWindow):
                 self.video_timer.stop()
                 current_frame = self.cap.get(cv2.CAP_PROP_POS_FRAMES)
 
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, current_frame - 5 * 30))
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, current_frame - 5 * self.video_fs))
                 self.video_timer.start()
             except Exception as e:
                 print(f"Error in jump_backward: {e}")
