@@ -177,7 +177,7 @@ class MainWindow(QMainWindow):
 
         if self.selected_video != None:
             self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
-            self.video_fs = cap.get(cv2.CAP_PROP_FPS)
+            self.video_fs = self.cap.get(cv2.CAP_PROP_FPS)
             time_difference = self.event_start_time - self.selected_video_start_time
             time_from_start = time_difference.total_seconds()
             start_frame_index = int(time_from_start * self.video_fs - 5 * self.video_fs)
