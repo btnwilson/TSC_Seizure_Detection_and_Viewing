@@ -229,7 +229,7 @@ class MainWindow(QMainWindow):
             print(f"Print Event Start Time: {self.event_start_time}")
             
             self.cap = cv2.VideoCapture(os.path.join(self.video_path, self.selected_video))
-            self.video_fs = cap.get(cv2.CAP_PROP_FPS)
+            self.video_fs = self.cap.get(cv2.CAP_PROP_FPS)
             if not self.cap.isOpened():
                 print(f"Error: Unable to open video file {self.selected_video}")
                 return
